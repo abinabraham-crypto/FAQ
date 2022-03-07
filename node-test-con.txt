@@ -37,7 +37,7 @@ kubectl -n cattle-system patch  deployments cattle-cluster-agent --patch '{
                     {
                       "hostnames":
                       [
-                        "rancher.vismaya.lan"
+                        "rancher.qidbnet.local"
                       ],
                       "ip": "192.168.1.118"
                     }
