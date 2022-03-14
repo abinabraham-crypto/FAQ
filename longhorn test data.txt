@@ -1,0 +1,50 @@
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+nano pvc.yaml
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: longhorn-volv-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+nano deployment.yaml
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  labels:
+    app: nginx
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:stable-alpine
+        ports:
+        - containerPort: 80
+		volumeMounts:
+        - name: volv
+          mountPath: /data
+	  volumes:
+      - name: volv
+        persistentVolumeClaim:
+        claimName: longhorn-volv-pvc
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
