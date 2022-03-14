@@ -1,0 +1,375 @@
+Prometheus & Grafana Installation 
+
+suse documentations https://documentation.suse.com/
+
+suse monitoring https://documentation.suse.com/suse-caasp/4.5/html/caasp-admin/id-monitoring.html#monitoring-stack
+
+Prerequisites
+
+* NGINX Ingress Controller
+* Monitoring namespace
+    
+	kubectl create namespace monitoring
+	
+* Configure Authentication
+	
+	zypper in apache2-utils
+	
+	-> Create the secret file auth
+	     
+		 nano auth
+	
+	     htpasswd -c auth admin
+         New password:
+         Re-type new password:
+         Adding password for user admin
+	
+	-> Create secret in Kubernetes cluster
+	     
+		 kubectl create secret generic -n monitoring prometheus-basic-auth --from-file=auth
+		 
+* TLS Certificate
+    
+	openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /root/monitoring/tls.key -out /root/monitoring/tls.crt -subj "/CN=*.vismaya.sles.lan"
+
+	kubectl -n monitoring create secret tls monitoring-tls --key /root/monitoring/tls.key --cert /root/monitoring/tls.crt
+
+
+Prometheus
+
+* Prometheus server
+* Alertmanager
+
+Installation
+
+* Prometheus server
+    
+	nano prometheus-config-values.yaml
+___________________________________________________________________________________________
+	
+# Alertmanager configuration
+alertmanager:
+  enabled: true
+  ingress:
+    enabled: true
+    hosts:
+    -  prometheus-alertmanager.vismaya.sles.lan
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      nginx.ingress.kubernetes.io/auth-type: basic
+      nginx.ingress.kubernetes.io/auth-secret: prometheus-basic-auth
+      nginx.ingress.kubernetes.io/auth-realm: "Authentication Required"
+    tls:
+      - hosts:
+        - prometheus-alertmanager.vismaya.sles.lan
+        secretName: monitoring-tls
+  persistentVolume:
+    enabled: true
+    ## Use a StorageClass
+    storageClass: longhorn
+    ## Create a PersistentVolumeClaim of 2Gi
+    size: 2Gi
+    ## Use an existing PersistentVolumeClaim (my-pvc)
+    #existingClaim: my-pvc
+
+## Alertmanager is configured through alertmanager.yml. This file and any others
+## listed in alertmanagerFiles will be mounted into the alertmanager pod.
+## See configuration options https://prometheus.io/docs/alerting/configuration/
+#alertmanagerFiles:
+#  alertmanager.yml:
+
+# Create a specific service account
+serviceAccounts:
+  nodeExporter:
+    name: prometheus-node-exporter
+
+# Node tolerations for node-exporter scheduling to nodes with taints
+# Allow scheduling of node-exporter on master nodes
+nodeExporter:
+  hostNetwork: false
+  hostPID: false
+  podSecurityPolicy:
+    enabled: true
+    annotations:
+      apparmor.security.beta.kubernetes.io/allowedProfileNames: runtime/default
+      apparmor.security.beta.kubernetes.io/defaultProfileName: runtime/default
+      seccomp.security.alpha.kubernetes.io/allowedProfileNames: runtime/default
+      seccomp.security.alpha.kubernetes.io/defaultProfileName: runtime/default
+  tolerations:
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+
+# Disable Pushgateway
+pushgateway:
+  enabled: false
+
+# Prometheus configuration
+server:
+  ingress:
+    enabled: true
+    hosts:
+    - prometheus.vismaya.sles.lan
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      nginx.ingress.kubernetes.io/auth-type: basic
+      nginx.ingress.kubernetes.io/auth-secret: prometheus-basic-auth
+      nginx.ingress.kubernetes.io/auth-realm: "Authentication Required"
+    tls:
+      - hosts:
+        - prometheus.vismaya.sles.lan
+        secretName: monitoring-tls
+  persistentVolume:
+    enabled: true
+    ## Use a StorageClass
+    storageClass: longhorn
+    ## Create a PersistentVolumeClaim of 8Gi
+    size: 8Gi
+    ## Use an existing PersistentVolumeClaim (my-pvc)
+    #existingClaim: my-pvc
+
+## Prometheus is configured through prometheus.yml. This file and any others
+## listed in serverFiles will be mounted into the server pod.
+## See configuration options
+## https://prometheus.io/docs/prometheus/latest/configuration/configuration/
+#serverFiles:
+#  prometheus.yml:
+___________________________________________________________________________________________
+
+helm repo add suse https://kubernetes-charts.suse.com
+
+helm install prometheus suse/prometheus \
+--namespace monitoring \
+--values prometheus-config-values.yaml
+
+kubectl -n monitoring get pod | grep prometheus
+
+kubectl get ingress -n monitoring
+
+
+* Alertmanager
+
+Add the alertmanagerFiles section to your Prometheus configuration file prometheus-config-values.yaml.
+___________________________________________________________________________________________
+
+alertmanagerFiles:
+  alertmanager.yml:
+    global:
+      # The smarthost and SMTP sender used for mail notifications.
+      smtp_from: *******@gmail.com
+      smtp_smarthost: smtp.gmail.com:587
+      smtp_auth_username: ********@gmail.com
+      smtp_auth_password: ************
+      smtp_require_tls: true
+
+    route:
+      # The labels by which incoming alerts are grouped together.
+      group_by: ['node']
+
+      # When a new group of alerts is created by an incoming alert, wait at
+      # least 'group_wait' to send the initial notification.
+      # This way ensures that you get multiple alerts for the same group that start
+      # firing shortly after another are batched together on the first
+      # notification.
+      group_wait: 30s
+
+      # When the first notification was sent, wait 'group_interval' to send a batch
+      # of new alerts that started firing for that group.
+      group_interval: 5m
+
+      # If an alert has successfully been sent, wait 'repeat_interval' to
+      # resend them.
+      repeat_interval: 3h
+
+      # A default receiver
+      receiver: admin-example
+
+    receivers:
+    - name: 'admin-example'
+      email_configs:
+      - to: 'sanal.rk@vismayacorp.com , abin.abraham@vismayacorp.com , ajisha.sb@vismayacorp.com'
+___________________________________________________________________________________________
+
+Replace the serverFiles section of the Prometheus configuration file prometheus-config-values.yaml.
+
+___________________________________________________________________________________________
+
+serverFiles:
+  alerts: {}
+  rules:
+    groups:
+    - name: caasp.node.rules
+      rules:
+      - alert: NodeIsNotReady
+        expr: kube_node_status_condition{condition="Ready",status="false"} == 1 or kube_node_status_condition{condition="Ready",status="unknown"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          description: '{{ $labels.node }} is not ready'
+      - alert: NodeIsOutOfDisk
+        expr: kube_node_status_condition{condition="OutOfDisk",status="true"} == 1
+        labels:
+          severity: critical
+        annotations:
+          description: '{{ $labels.node }} has insufficient free disk space'
+      - alert: NodeHasDiskPressure
+        expr: kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+        labels:
+          severity: warning
+        annotations:
+          description: '{{ $labels.node }} has insufficient available disk space'
+      - alert: NodeHasInsufficientMemory
+        expr: kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
+        labels:
+          severity: warning
+        annotations:
+          description: '{{ $labels.node }} has insufficient available memory'
+    - name: caasp.certs.rules
+      rules:
+      - alert: KubernetesCertificateExpiry3Months
+        expr: (cert_exporter_cert_expires_in_seconds / 86400) < 90
+        labels:
+          severity: info
+        annotations:
+          description: 'The cert for {{ $labels.filename }} on {{ $labels.nodename }} node is going to expire in 3 months'
+      - alert: KubernetesCertificateExpiry30Days
+        expr: (cert_exporter_cert_expires_in_seconds / 86400) < 30
+        labels:
+          severity: warning
+        annotations:
+          description: 'The cert for {{ $labels.filename }} on {{ $labels.nodename }} node is going to expire in 30 days'
+      - alert: KubernetesCertificateExpiry7Days
+        expr: (cert_exporter_cert_expires_in_seconds / 86400) < 7
+        labels:
+          severity: critical
+        annotations:
+          description: 'The cert for {{ $labels.filename }} on {{ $labels.nodename }} node is going to expire in 7 days'
+      - alert: KubeconfigCertificateExpiry3Months
+        expr: (cert_exporter_kubeconfig_expires_in_seconds / 86400) < 90
+        labels:
+          severity: info
+        annotations:
+          description: 'The cert for {{ $labels.filename }} on {{ $labels.nodename }} node is going to expire in 3 months'
+      - alert: KubeconfigCertificateExpiry30Days
+        expr: (cert_exporter_kubeconfig_expires_in_seconds / 86400) < 30
+        labels:
+          severity: warning
+        annotations:
+          description: 'The cert for {{ $labels.filename }} on {{ $labels.nodename }} node is going to expire in 30 days'
+      - alert: KubeconfigCertificateExpiry7Days
+        expr: (cert_exporter_kubeconfig_expires_in_seconds / 86400) < 7
+        labels:
+          severity: critical
+        annotations:
+          description: 'The cert for {{ $labels.filename }} on {{ $labels.nodename }} node is going to expire in 7 days'
+      - alert: AddonCertificateExpiry3Months
+        expr: (cert_exporter_secret_expires_in_seconds / 86400) < 90
+        labels:
+          severity: info
+        annotations:
+          description: 'The cert for {{ $labels.secret_name }} is going to expire in 3 months'
+      - alert: AddonCertificateExpiry30Days
+        expr: (cert_exporter_secret_expires_in_seconds / 86400) < 30
+        labels:
+          severity: warning
+        annotations:
+          description: 'The cert for {{ $labels.secret_name }} is going to expire in 30 days'
+      - alert: AddonCertificateExpiry7Days
+        expr: (cert_exporter_secret_expires_in_seconds / 86400) < 7
+        labels:
+          severity: critical
+        annotations:
+          description: 'The cert for {{ $labels.secret_name }} is going to expire in 7 days'
+___________________________________________________________________________________________
+
+helm upgrade prometheus suse/prometheus --namespace monitoring --values prometheus-config-values.yaml
+
+Grafana
+
+nano grafana-datasources.yaml
+___________________________________________________________________________________________
+
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+  labels:
+     grafana_datasource: "1"
+data:
+  datasource.yaml: |-
+    apiVersion: 1
+    deleteDatasources:
+      - name: Prometheus
+        orgId: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      url: http://prometheus-server.monitoring.svc.cluster.local:80
+      access: proxy
+      orgId: 1
+      isDefault: true
+___________________________________________________________________________________________
+
+kubectl create -f grafana-datasources.yaml
+
+nano grafana-config-values.yaml
+___________________________________________________________________________________________
+
+# Configure admin password
+adminPassword: P@ssw0rd123
+
+# Ingress configuration
+ingress:
+  enabled: true
+  annotations:
+    kubernetes.io/ingress.class: nginx
+  hosts:
+    - grafana.vismaya.sles.lan
+  tls:
+    - hosts:
+      - grafana.vismaya.sles.lan
+      secretName: monitoring-tls
+
+# Configure persistent storage
+persistence:
+  enabled: true
+  accessModes:
+    - ReadWriteOnce
+  ## Use a StorageClass
+  storageClassName: longhorn
+  ## Create a PersistentVolumeClaim of 10Gi
+  size: 10Gi
+  ## Use an existing PersistentVolumeClaim (my-pvc)
+  #existingClaim: my-pvc
+
+# Enable sidecar for provisioning
+sidecar:
+  datasources:
+    enabled: true
+    label: grafana_datasource
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+___________________________________________________________________________________________
+
+helm repo add suse https://kubernetes-charts.suse.com
+
+helm install grafana suse/grafana \
+--namespace monitoring \
+--values grafana-config-values.yaml
+
+kubectl -n monitoring get pod | grep grafana
+
+
+#workaround
+
+  	
+		
+    receivers:
+    - name: 'admin-example'
+      email_configs
+	  - to: 'sanal.rk@vismayacorp.com , abin.abraham@vismayacorp.com , ajisha.sb@vismayacorp.com'
+        headers:
+          Subject: '<Environment name> {{ template "email.default.subject" . }}'

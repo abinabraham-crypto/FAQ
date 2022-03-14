@@ -1,0 +1,52 @@
+nodes:
+    - address: 10.0.106.104
+      user: unixadmin
+      role:
+        - controlplane
+        - etcd
+      hostname_override: hqprccwmstrlv01
+      ssh_key_path: ~/.ssh/id_rsa
+    - address: 10.0.106.105
+      user: unixadmin
+      role:
+        - controlplane
+        - etcd
+      hostname_override: hqprccwmstrlv02
+      ssh_key_path: ~/.ssh/id_rsa
+    - address: 10.0.106.106
+      user: unixadmin
+      role:
+        - controlplane
+        - etcd
+      hostname_override: hqprccwmstrlv03
+      ssh_key_path: ~/.ssh/id_rsa
+    - address: 10.0.106.107
+      user: unixadmin
+      role:
+        - worker
+      hostname_override: hqprccwapplv01
+      ssh_key_path: ~/.ssh/id_rsa
+    - address: 10.0.106.108
+      user: unixadmin
+      role:
+        - worker
+      hostname_override: hqprccwapplv02
+      ssh_key_path: ~/.ssh/id_rsa
+    - address: 10.0.106.109
+      user: unixadmin
+      role:
+        - worker
+      hostname_override: hqprccwapplv03
+      ssh_key_path: ~/.ssh/id_rsa
+network:
+  plugin: calico
+ingress:
+  provider: none
+authentication:
+    strategy: x509
+    sans:
+      - "10.0.106.120"
+services:
+  kube-api:
+    extra_args:
+      enable-admission-plugins: NodeRestriction,PodNodeSelector

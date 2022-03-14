@@ -1,0 +1,64 @@
+Cluster setup
+
+zypper in -y sudo nano vi bind-utils
+
+SUSEConnect -p sle-module-basesystem/15.2/x86_64
+SUSEConnect -p sle-module-containers/15.2/x86_64
+SUSEConnect --product PackageHub/15.2/x86_64
+SUSEConnect –p sle-module-public-cloud/15.1/x86_64
+
+sudo zypper in –y docker
+
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo systemctl status docker
+
+sudo usermod -aG docker unixadmin
+
+docker version --format '{{.Server.Version}}'
+
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+
+curl -LO "https://dl.k8s.io/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl.sha256"
+
+echo "$(<kubectl.sha256) kubectl" | sha256sum --check
+
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+kubectl version --client
+
+modprobe ip_set
+modprobe ip_set_hash_ip
+modprobe ip_set_hash_net
+modprobe iptable_mangle
+modprobe iptable_raw
+modprobe veth
+modprobe vxlan
+modprobe xt_comment
+modprobe xt_mark
+modprobe xt_multiport
+modprobe xt_nat
+modprobe xt_recent
+modprobe xt_set
+modprobe xt_statistic
+modprobe xt_tcpudp
+
+sysctl -w net.bridge.bridge-nf-call-iptables=1
+
+ssh-keygen -t rsa
+
+ssh-copy-id -i ~/.ssh/id_rsa.pub unixadmin@10.0.100.6
+
+wget https://github.com/rancher/rke/releases/download/v1.3.7/rke_linux-amd64 
+
+mv rke_linux-amd64 rke
+
+chmod +x rke && cp rke /usr/bin
+
+rke --version
+
+rke up
+
+cp kube_config_cluster.yml ~/.kube/config
+
+kubectl get nodes

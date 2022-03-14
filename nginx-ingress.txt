@@ -1,0 +1,108 @@
+Install nginx-ingress in RKE
+
+ingress-config-values.yaml
+_______________________________________________________________
+
+# Enable the creation of pod security policy
+podSecurityPolicy:
+  enabled: false
+
+# Create a specific service account
+serviceAccount:
+  create: true
+  name: nginx-ingress
+
+controller:
+  # Number of controller pods
+  replicaCount: 3
+  # These services are exposed on the node with IP 10.86.4.158
+  service:
+    enableHttp: false
+    externalIPs:
+      - 10.0.204.14
+      - 10.0.204.15
+      - 10.0.204.16
+      - 10.0.204.17
+      - 10.0.204.18
+_______________________________________________________________
+
+helm repo add suse https://kubernetes-charts.suse.com
+
+helm repo update
+
+kubectl create namespace nginx-ingress
+
+helm install nginx-ingress suse/nginx-ingress \
+--namespace nginx-ingress \
+--values nginx-ingress-config-values.yaml
+
+kubectl get pod -n nginx-ingress
+
+kubectl get svc -n nginx-ingress 
+
+################################################################
+
+An example Ingress that makes use of the controller:
+
+  apiVersion: extensions/v1beta1
+  kind: Ingress
+  metadata:
+    annotations:
+      kubernetes.io/ingress.class: nginx
+    name: example
+    namespace: foo
+  spec:
+    rules:
+      - host: www.example.com
+        http:
+          paths:
+            - backend:
+                serviceName: exampleService
+                servicePort: 80
+              path: /
+    # This section is only required if TLS is to be enabled for the Ingress
+    tls:
+        - hosts:
+            - www.example.com
+          secretName: example-tls
+
+If TLS is enabled for the Ingress, a Secret containing the certificate and key must also be provided:
+
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: example-tls
+    namespace: foo
+  data:
+    tls.crt: <base64 encoded cert>
+    tls.key: <base64 encoded key>
+  type: kubernetes.io/tls
+
+################################################################
+
+
+
+
+
+helm install nginx-new nginx-stable/nginx-ingress --values /root/nginx-ingress/nginx-ingress-config-values.yaml
+
+
+kubectl create ingress demo-localhost --class=nginx \
+  --rule=rancher.vimsya.lan/*=demo:80
+
+>>>>>>>>>>>>>>>
+ingress-nginx
+<<<<<<<<<<<<<<<
+
+helm upgrade --install ingress-nginx ingress-nginx \
+  --repo https://kubernetes.github.io/ingress-nginx \
+  --namespace ingress-nginx --create-namespace
+
+externalIPs:
+-
+-
+-
+
+kubectl get pod -n ingress-nginx
+
+kubectl get svc -n ingress-nginx

@@ -1,0 +1,302 @@
+Longhorn installation
+
+Prerequisites:- https://longhorn.io/docs/1.1.0/deploy/install/#installation-requirements
+
+1.Kubernetes v1.16+
+2.Docker v1.13+, containerd v1.3.7+
+3.open-iscsi is installed, and the iscsid daemon is running on all the nodes
+4.Each node has a NFSv4 client installed
+5.bash, curl, findmnt, grep, awk, blkid, lsblk must be installed
+6.Mount propagation must be enabled:-  https://kubernetes-csi.github.io/docs/deploying.html#enabling-mount-propagation
+
+jq must be installed
+check mount propagation : curl -sSfL https://raw.githubusercontent.com/longhorn/longhorn/v1.1.2/scripts/environment_check.sh | bash
+
+check script if network restricted
+________________________________________________________________________________
+
+#!/bin/bash
+
+dependencies() {
+  local targets=($@)
+  local allFound=true
+  for ((i=0; i<${#targets[@]}; i++)); do
+    local target=${targets[$i]}
+    if [ "$(which $target)" == "" ]; then
+      allFound=false
+      echo Not found: $target
+    fi
+  done
+  if [ "$allFound" == "false" ]; then
+    echo "Please install missing dependencies."
+    exit 2
+  fi
+}
+
+create_ds() {
+cat <<EOF > $TEMP_DIR/environment_check.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    app: longhorn-environment-check
+  name: longhorn-environment-check
+spec:
+  selector:
+    matchLabels:
+      app: longhorn-environment-check
+  template:
+    metadata:
+      labels:
+        app: longhorn-environment-check
+    spec:
+      containers:
+      - name: longhorn-environment-check
+        image: busybox
+        args: ["/bin/sh", "-c", "sleep 1000000000"]
+        volumeMounts:
+        - name: mountpoint
+          mountPath: /tmp/longhorn-environment-check
+          mountPropagation: Bidirectional
+        securityContext:
+          privileged: true
+      volumes:
+      - name: mountpoint
+        hostPath:
+            path: /tmp/longhorn-environment-check
+EOF
+  kubectl create -f $TEMP_DIR/environment_check.yaml
+}
+
+cleanup() {
+  echo "cleaning up..."
+  kubectl delete -f $TEMP_DIR/environment_check.yaml
+  rm -rf $TEMP_DIR
+  echo "clean up complete"
+}
+
+wait_ds_ready() {
+  while true; do
+    local ds=$(kubectl get ds/longhorn-environment-check -o json)
+    local numberReady=$(echo $ds | jq .status.numberReady)
+    local desiredNumberScheduled=$(echo $ds | jq .status.desiredNumberScheduled)
+
+    if [ "$desiredNumberScheduled" == "$numberReady" ] && [ "$desiredNumberScheduled" != "0" ]; then
+      echo "all pods ready ($numberReady/$desiredNumberScheduled)"
+      return
+    fi
+
+    echo "waiting for pods to become ready ($numberReady/$desiredNumberScheduled)"
+    sleep 3
+  done
+}
+
+validate_ds() {
+  local allSupported=true
+  local pods=$(kubectl -l app=longhorn-environment-check get po -o json)
+
+  local ds=$(kubectl get ds/longhorn-environment-check -o json)
+  local desiredNumberScheduled=$(echo $ds | jq .status.desiredNumberScheduled)
+
+  for ((i=0; i<desiredNumberScheduled; i++)); do
+    local pod=$(echo $pods | jq .items[$i])
+    local nodeName=$(echo $pod | jq -r .spec.nodeName)
+    local mountPropagation=$(echo $pod | jq -r '.spec.containers[0].volumeMounts[] | select(.name=="mountpoint") | .mountPropagation')
+
+    if [ "$mountPropagation" != "Bidirectional" ]; then
+      allSupported=false
+      echo "node $nodeName: MountPropagation DISABLED"
+    fi
+  done
+
+  if [ "$allSupported" != "true" ]; then
+    echo
+    echo "  MountPropagation is disabled on at least one node."
+    echo "  As a result, CSI driver and Base image cannot be supported."
+    echo
+    exit 1
+  else
+    echo -e "\n  MountPropagation is enabled!\n"
+  fi
+}
+
+dependencies kubectl jq mktemp
+TEMP_DIR=$(mktemp -d)
+trap cleanup EXIT
+create_ds
+wait_ds_ready
+validate_ds
+exit 0
+________________________________________________________________________________
+
+sudo zypper in -y open-iscsi 
+
+sudo zypper in -y helm
+
+sudo systemctl start iscsid
+
+sudo systemctl enable iscsid
+
+sudo systemctl status iscsid
+
+sudo zypper in -y nfs-utils
+
+Installation with helm
+
+Add helm repo
+
+helm repo add longhorn https://charts.longhorn.io
+
+helm repo update
+
+To install Longhorn with Helm 3
+
+kubectl create namespace longhorn-system
+
+helm install longhorn longhorn/longhorn --namespace longhorn-system
+
+To confirm that the deployment succeeded, run
+
+kubectl -n longhorn-system get pod -w
+
+Ingress for longhorn
+
+USER=admin; PASSWORD=P@ssw0rd123; echo "${USER}:$(openssl passwd -stdin -apr1 <<< ${PASSWORD})" >> auth
+
+kubectl -n longhorn-system create secret generic basic-auth --from-file=auth
+
+longhorn-ingress.yaml
+________________________________________________________________________________
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: longhorn-ingress
+  namespace: longhorn-system
+  annotations:
+    # type of authentication
+    nginx.ingress.kubernetes.io/auth-type: basic
+    # prevent the controller from redirecting (308) to HTTPS
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    # name of the secret that contains the user/password definitions
+    nginx.ingress.kubernetes.io/auth-secret: basic-auth
+    # message to display with an appropriate context why the authentication is required
+    nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required '
+    # custom max body size for file uploading like backing image uploading
+    nginx.ingress.kubernetes.io/proxy-body-size: 10000m
+spec:
+  rules:
+  - host: longhornui.barwabank.com  
+  - http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: longhorn-frontend
+            port:
+              number: 80
+________________________________________________________________________________
+
+kubectl -n longhorn-system apply -f longhorn-ingress.yaml
+
+________________________________________________________________________________
+
+#Test longhorn
+
+nano pod.yaml
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+apiVersion: v1
+kind: Pod
+metadata:
+  name: volume-test
+  namespace: sample
+spec:
+  containers:
+  - name: volume-test
+    image: nginx:stable-alpine
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+    - name: volv
+      mountPath: /data
+    ports:
+    - containerPort: 80
+  volumes:
+  - name: volv
+    persistentVolumeClaim:
+      claimName: longhorn-volv-pvc
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+nano pvc.yaml
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: longhorn-volv-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+nano deployment.yaml
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  labels:
+    app: nginx
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:stable-alpine
+        ports:
+        - containerPort: 80
+		volumeMounts:
+        - name: volv
+          mountPath: /data
+	  volumes:
+      - name: volv
+        persistentVolumeClaim:
+        claimName: longhorn-volv-pvc
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+________________________________________________________________________________
+
+#longhorn troubleshooting
+
+kubectl get pods -n longhorn-system
+
+kubectl logs -f <pod> -n longhorn-system
+
+check ns kube-system for kube-dns & coredns pods are running
+
+verify if worker node resolve longhorn-backend
+
+ssh worker
+
+#use clusterIP of kube-dns service in kube-system ns
+
+dig @10.96.0.10 longhorn-backend.longhorn-system.svc.cluster.local
+
+restart daemonset kube-fannel-ds in kube-system
+
+kubectl rollout restart daemonset kube-fannel-ds -n kube-system
+________________________________________________________________________________
+
+curl -sSfL https://raw.githubusercontent.com/rancher/longhorn/master/scripts/environment_check.sh | bash
