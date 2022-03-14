@@ -1,0 +1,180 @@
+>>>>>Role and Role-binding in k8s
+ 
+ * User certificate creation
+   
+   - Generating private key
+     
+	 $ openssl genrsa -out mpay.key 2048
+   
+   - Generating certificate signing request
+     
+	 $ openssl req -new -key mpay.key -out mpay.csr -subj "/CN=mpay"
+	 
+   - Copy kubernetes ca certificate and key from the master node kmaster
+   
+     $ scp root@kmaster:/etc/kubernetes/pki/ca.{crt,key} .
+	 
+   - Sign the certificate using certificate authority
+   
+     $ openssl x509 -req -in mpay.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out mpay.crt -days 365
+	 
+ * Role creation
+ 
+   - Creation via command
+   
+   
+   - Creation using yaml
+_______________________________________________________________
+
+apiVersion: rbac.authorization.k8s.io/v1
+
+kind: Role
+
+metadata:
+
+  namespace: mpay
+
+  name: mpay-developer
+
+rules:
+
+- apiGroups: ["*"]
+
+  resources: ["*"]
+
+  verbs: ["*"]
+_______________________________________________________________   
+   
+ * Role-binding creation
+ 
+   - Creation via command
+   
+   
+   - Creation using yaml
+
+_______________________________________________________________
+
+apiVersion: rbac.authorization.k8s.io/v1
+
+kind: RoleBinding
+
+metadata:
+
+  name: mpay-access
+
+  namespace: mpay
+
+subjects:
+
+  # You can specify more than one "subject"
+
+- kind: User
+
+  name: mpay # "name" is case sensitive
+
+  apiGroup: rbac.authorization.k8s.io
+
+roleRef:
+
+  # "roleRef" specifies the binding to a Role / ClusterRole
+
+  kind: Role    # this must be Role or ClusterRole
+
+  name: mpay-developer  # this must match the name of the Role or ClusterRole you wish to bind to
+
+  apiGroup: rbac.authorization.k8s.io
+_______________________________________________________________
+
+
+ 
+ * Kubeconfig file
+   
+   - Modify existing config file
+   
+   Copy config file from the .kube directory and paste it on the newly created user's home directory
+   
+   Change ownership of config file
+   
+   sudo chown <username>:users config    #replace <username> with your's
+   
+   Change certificate and key with the newly created certificate and key
+   
+   cat mpay.crt | base64 -w0
+   cat mpay.key | base64 -w0
+   #dont forget to make it base64 encoded format 
+
+sample config file after editing
+   
+apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    api-version: v1
+    certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUM0VENDQWNtZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFTTVJBd0RnWURWUVFERXdkcmRXSmwKTFdOaE1CNFhEVEl4TVRJd016RXdNamN4TjFvWERUTXhNVEl3TVRFd01qY3hOMW93RWpFUU1BNEdBMVVFQXhNSAphM1ZpWlMxallUQ0NBU0l3RFFZSktvWklodmNOQVFFQkJRQURnZ0VQQURDQ0FRb0NnZ0VCQUxkRnZPRTQ5ZHNzCm1MdHNraGhlc2szbkNwUjlNelNxbUhOem1SeHZlTkc5S1FtYTdFOGczZEhQZnVMbE91eHY4ZC9lKzFwMEVUZW8KaVNyaVk3S0VDaG8ycXhYaWRteU5td05zdERmMi9HcndlejduN1U5RGIyQzZvbzJoZkJBQTlLMEYzTkQxTU43bQpkdXhVNjR0ZzlnT2NNTVlMeWxpMWxDS1F3ZEhvMGdBSWY4ZHl0VjVibS9aZG12SlJXM01SeWtET3lYMk9NbnJKCm5sd1pLTjRjOHVhVGhTTFhob2xEVSsvUE9QM2h5QkVnS0JuakNQZDloa05mUFR5bG5JV2YrcjNTaG9WWUUyMEgKM0tiT0ZFTTRWMHlXMkJQVG0xM01VZzBKNGZlek53QURHaWFnVDVmaGZRYzdNOXJCYndqZ1BBbEtBbXZOcWpOQwpvdytPclA0YzFFMENBd0VBQWFOQ01FQXdEZ1lEVlIwUEFRSC9CQVFEQWdLa01BOEdBMVVkRXdFQi93UUZNQU1CCkFmOHdIUVlEVlIwT0JCWUVGUDZYTkQ5V1pMTmxJZVFrVHRlYnhqSXVZN2NBTUEwR0NTcUdTSWIzRFFFQkN3VUEKQTRJQkFRQUJyT2xlK2p1ZnV4TjVFT2w4QnF2T1BvZ2J5bU4rN1dvWUwxaUpIZXhxWitINmo3VHV6RS9USXdHYgovcnVxSGFObUFyZ2c0NFIyQ3hRSnpmdjNHeEt4NE1pcFFFKzFpUkNuamNVdW1vNE1jZ1lEUUh3aGZDbUxRWnVPCjBwamQ1TjI4MXZPRnNMVmNLQ3lPRnA3ckxXYVVFQXFCbFNONDlaNkFMTTZjWmlnTGFhd0dOQitQSDQ1ZTJwbkwKWmczdENjeHhLUXh6QXIvbjR3NzJ2ZzRPR055c2c2b2Y1bDNMVGJGWExxUCtVcTU2NmRDQ2ROaXZPeGFINlZIaAo4UlBGZkxocXN6WlZzbFZNTkhtaWQzSmRHRkNwaHArTlFJWk9GTDhudmhWYjJqZHB4aEkvdmlXZFM4YVpud21WClFIYjZMQVRTcURiTkNQVlBmUU5yL1VPZ0NpY3QKLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+    server: "https://38.91.102.38:6443"
+  name: "local"
+contexts:
+- context:
+    cluster: "local"
+    user: "mpay"
+  name: "local"
+current-context: "local"
+users:
+- name: "mpay"
+  user:
+    client-certificate-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUN1akNDQWFJQ0ZEaHB0TDVaeHZnQVRyRWQvNG1nbUVOOWRDcTZNQTBHQ1NxR1NJYjNEUUVCQ3dVQU1CSXgKRURBT0JnTlZCQU1UQjJ0MVltVXRZMkV3SGhjTk1qRXhNakV6TURVek5EVTJXaGNOTWpJeE1qRXpNRFV6TkRVMgpXakFoTVEwd0N3WURWUVFEREFSdGNHRjVNUkF3RGdZRFZRUUtEQWRtYVc1aGJtTmxNSUlCSWpBTkJna3Foa2lHCjl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUF3T1lucy9zakMvTlZrcndVcEYwenc2ZHVkL2o0c2NxN0V4blYKY21nMkEyZ1gyaVB0U05ibHVjUEhiVHE3bURVbEZEbm5CbzI0NkkxQkRUWDNCcERLeDJrcGhGd0dmTSs2NkZZNwp0dmZNR3BzQXQ0NzV3ZCtGNWV3bFEySzBROTdxcks4cklrWjc3TkxkN3NRSGQ1VzlLN3g2S1NsbVlBNXlmcm0rCm9Wak53UVFHLzRUTElsbklvQ3pacEZ2LzdPbXpKSW5OVDloQ0h3c0hrai9ya01PdFVQR3Z2N2pSbWw5ZVB5blUKS0dlSjQydGtHcExKaG9BTE1QbnZXdzBlaklSQ29hdFRBSkVpY3ZmZFhKZ0hOZ1ZOdkhPR2h4OTljbTd5UzBMSAppY0FUcml1SFcrSWc1L1FCYjJRL1JHQTc2Ni9OOTNnaEI2SldBaTY3L0xUT2l2NmdZUUlEQVFBQk1BMEdDU3FHClNJYjNEUUVCQ3dVQUE0SUJBUUJ5RmtBVmYraDVOK2xKanoyamQ3NExqTzh5M2pPK3NPUk5Ec0IyVllzcEM3cUQKb2JJcUFTWFhRV21BMStDaVZ0cXY0aVBhdmY5WTlYYnlNcGNqVHlLWVJhTW8yRzBCdnhEM1BkUy9jT3RLUmFwSgpibVNvMjZmWmtBVCtacGJ0OVZhQWZqVzYvNlFDSnFaM1RQSHQ5bmwzYXpJV0tzZi81ZUdCUkszWGF4M0RhQ3c4CnYxNUFaMXEvVUJNdTY4UDhybFViQkl5N2svMUxuN3NUSEFEUzVveFQ0YkREdFRSQXlWMHFteWEwNE9XNnd5UHEKUkhhS20xcnA0dGhkYkViaUlwQmIwaGVlR2VmakdsQVlKSVZNZFdVVzdCcndvV2MrWlJpVWwxYzR5NjdmaDdLTQpzK2tzOEt6VDBHazZ0RUljTVFDd2h0bUZia3FNMDdGVEc2Z0xGUkFNCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+    client-key-data: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcFFJQkFBS0NBUUVBd09ZbnMvc2pDL05Wa3J3VXBGMHp3NmR1ZC9qNHNjcTdFeG5WY21nMkEyZ1gyaVB0ClNOYmx1Y1BIYlRxN21EVWxGRG5uQm8yNDZJMUJEVFgzQnBES3gya3BoRndHZk0rNjZGWTd0dmZNR3BzQXQ0NzUKd2QrRjVld2xRMkswUTk3cXJLOHJJa1o3N05MZDdzUUhkNVc5Szd4NktTbG1ZQTV5ZnJtK29Wak53UVFHLzRUTApJbG5Jb0N6WnBGdi83T216SkluTlQ5aENId3NIa2ovcmtNT3RVUEd2djdqUm1sOWVQeW5VS0dlSjQydGtHcExKCmhvQUxNUG52V3cwZWpJUkNvYXRUQUpFaWN2ZmRYSmdITmdWTnZIT0doeDk5Y203eVMwTEhpY0FUcml1SFcrSWcKNS9RQmIyUS9SR0E3NjYvTjkzZ2hCNkpXQWk2Ny9MVE9pdjZnWVFJREFRQUJBb0lCQVFDMUdpQWlhT0RCZ29aUAp5Z2J6UFpHdzJrdnJsVE1mOEw3c011L2pocFZYWTI0cFhsdVRiRGFuem5nNFE5RUdHTGNrSXl5VVNaQlZ2UEJiCkQ5UkpOTDA4dEszRzE0TTd3T2V3NCswU1hka2hEVytCNWxqMFBRQUFHbEh0endpQlJCTTlad1B2SFErU0MzTlQKakhXYVAxb29hcjZpVUgwT0orSTB1ZnlRak1nM3NnZXZjSzlCNW5NSEVlVXNGOGd3M1Z6VTdlU05FTHdCT3FJNApNcHBoMFNLUVd6TzhDYmVPOWpoV0w4U2lmMlprNk9HckpoMnhYdDFzSzhOK09IeURaZ3Z6OVhvRFNyWWJHSHRGCkwrN2FRamo2cnpOZWllVVRWVXp4dGl1T3htVE1DS2QwT2syN3h2TlZIMGhYeXBvNFJGVlBqbmR6VUVQQ21QQjIKN3d1ZGdHZDFBb0dCQU9iOFk0ZklrWU1kTEFyaHppODA3K2JCZHJuc2xMQmdFRjhwcTA1WjNQY1pXRVZoMnkyUQpPbnJoREFoc29pQXpSZGlENkNmS2ZpWmt3c2hzQ3Baam9HekZUdzJzUWVNMkV5MUdxV1BDQVQ3Q3NUR0FSWWhwCnpEQ3hvTmVXL2JEVTlRU3p4c1VrLzkrdnQ1NFd1bTE2MllkNm1RcCtxS0pMSElJK3RFem5MMXFyQW9HQkFOWEoKNHVWM3RQUTREK0Z5Q1piSWdQSVBkWk91WmxYWWJtZXNmK0ltZlZBWXJhbzZNZHFURURlRHo3U2RxUk0rempjWApDUi90d2d5eHBpTjN4MDFYVzVzMFBWdDlaOFNuVzRPaGNBV1Fmc0FvSjFYcUFCdVFnUW1LckxJU1RCTng3NGNnCkxQVkd2VExOaWdndHhkRjl0ajZNdTVPeVF6cUE5NjBmRlkrbGY3RWpBb0dCQUxIV0ZXY2dNMi9uME5YYi9kdDQKZlUrREdiNlJkL1RITVRPaktFSGRpL011cnpoVDIrU2JpM3E1czRMMDZHbTBNQTAvbVVpeGJTaHdJVXNmYTVOWAp4dGFYbm9LZlllYmw1aVBRcUcrbW1VRFJzb3l5L2xYRlpyRUN3UnZiSXh5M0NLR0RMQUR5dUpGbWZ3OFczcGVWCm9zN2N3K0ZCbk9HK3hJYytjYUJYeWF5YkFvR0FjSjcxcENRM2N4L0ZYZUlSSXhsa3RCOW90TzkrZ1dLT1pwYjgKbDBublliWmVaZnBhSU9hditFNjdzRTROcjFHNm1GTE9QNytrSmNPLzNaZFBxbktHazNBbGtuaXhuV3I4VG85UQp6OTJhcCtkL01VY2YzMlYwVkc1MUl5bDRZaFgzTkp2Q2swTThqL0t1OERnTXFac3IwaStZOE9sTGVScFBYeWVzCjJBczdCVGtDZ1lFQXBwbHJnZUJ1RUlZQTlsMGFjaVQ5TUE3b1pHeWZYeHo4MU5mdXQ1c0ZBWlVIajdjSnFtcVcKK0JaU0t2ak0yQXkxUm5TUjZ3Qmh1K040WjlNam9oWkNGQzRZNzR0UmpkWU9zZm9XeDZWRHozcEh5emR4SURrMQpKV21FWElmVXlGejVIVThicU83ZXdEM0F2TVUwMktmMEc1L29HWlQrcVU0Wk1nQWJuL0VQQ1kwPQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
+
+
+
+############################################################################
+
+CLUSTER ROLE & CLUSTER ROLE BINDING
+
+_______________________________________________________________
+
+apiVersion: rbac.authorization.k8s.io/v1
+
+kind: ClusterRole
+
+metadata:
+
+  name: cluster-reader
+  
+rules:
+
+- apiGroups: [""]
+
+  resources: ["nodes", "namespaces"]
+  
+  verbs: ["get", "watch", "list"]
+_______________________________________________________________
+
+apiVersion: rbac.authorization.k8s.io/v1
+
+kind: ClusterRoleBinding
+
+metadata:
+
+  name: cluster-reader-binding
+  
+subjects:
+
+- kind: User
+
+  name: mpay # Name is case sensitive
+  
+  apiGroup: rbac.authorization.k8s.io
+  
+roleRef:
+
+  kind: ClusterRole
+  
+  name: cluster-reader
+  
+  apiGroup: rbac.authorization.k8s.io 
+_______________________________________________________________
+
+In here cluster-role and cluster-role-binding allows the specified user (mpay) to view the cluster nodes and namespaces.
+
+
