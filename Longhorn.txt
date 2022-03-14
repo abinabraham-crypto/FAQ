@@ -300,3 +300,11 @@ kubectl rollout restart daemonset kube-fannel-ds -n kube-system
 ________________________________________________________________________________
 
 curl -sSfL https://raw.githubusercontent.com/rancher/longhorn/master/scripts/environment_check.sh | bash
+
+________________________________________________________________________________
+
+#backup setup
+
+nfs://<nfs-server-ip>:<nfs-mount-path>
+
+nfs://192.168.1.111:/mnt/nfs
